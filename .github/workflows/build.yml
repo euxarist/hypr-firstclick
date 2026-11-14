@@ -36,7 +36,9 @@ jobs:
       - name: Pin the package archive
         run: |
           echo "Server = https://archive.archlinux.org/repos/${ARCHIVE_DATE}/\$repo/os/\$arch" > /etc/pacman.d/mirrorlist
-          pacman -Syu --noconfirm
+          # archlinux:latest is newer than the snapshot; -uu downgrades
+          # the base image to it so pinned packages resolve.
+          pacman -Syyuu --noconfirm
 
       - name: Install build dependencies
         run: |
