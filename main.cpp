@@ -10,10 +10,16 @@
 
 #include <hyprland/src/Compositor.hpp>
 #include <hyprland/src/desktop/state/FocusState.hpp>
+// Hyprland main moved Window.hpp into view/window/; 0.56 has it in view/.
+#if __has_include(<hyprland/src/desktop/view/window/Window.hpp>)
+#include <hyprland/src/desktop/view/window/Window.hpp>
+#else
 #include <hyprland/src/desktop/view/Window.hpp>
+#endif
 #include <hyprland/src/devices/IKeyboard.hpp>
 #include <hyprland/src/managers/input/InputManager.hpp>
 #include <hyprland/src/plugins/PluginAPI.hpp>
+#include <hyprland/src/config/values/types/BoolValue.hpp>
 
 #include <hyprland/src/event/EventBus.hpp>
 #include <hyprland/src/desktop/state/ViewState.hpp>
@@ -25,22 +31,20 @@
 
 inline HANDLE PHANDLE = nullptr;
 
-static CHyprSignalListener g_mouseHook;
-static std::set<uint32_t>  g_swallowedButtons;
+static CHyprSignalListener               g_mouseHook;
+static std::set<uint32_t>                g_swallowedButtons;
+static SP<Config::Values::CBoolValue>    g_enabled;
 
 static bool enabled() {
-    static auto val = HyprlandAPI::getConfigValue(PHANDLE, "plugin:firstclick:enabled");
-    if (!val)
-        return true;
-    static auto* const* PENABLED = (Hyprlang::INT* const*)val->getDataStaticPtr();
-    return PENABLED && *PENABLED && **PENABLED != 0;
+    return !g_enabled || g_enabled->value();
 }
 
 static bool anyModifierDown() {
     if (!g_pInputManager)
         return false;
     for (const auto& kb : g_pInputManager->m_keyboards) {
-        if (kb && kb->getModifiers() != 0)
+        // 0.56 returns a uint32_t, 0.57+ an Input::ModifierMask.
+        if (kb && static_cast<uint32_t>(kb->getModifiers()) != 0)
             return true;
     }
     return false;
@@ -98,7 +102,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         throw std::runtime_error("[firstclick] Version mismatch");
     }
 
-    HyprlandAPI::addConfigValue(PHANDLE, "plugin:firstclick:enabled", Hyprlang::INT{1});
+    g_enabled = makeShared<Config::Values::CBoolValue>("plugin:firstclick:enabled", "First click on an unfocused window only focuses it", true);
+    if (!HyprlandAPI::addConfigValueV2(PHANDLE, g_enabled))
+        g_enabled.reset();
 
     g_mouseHook = Event::bus()->m_events.input.mouse.button.listen([](IPointer::SButtonEvent event, Event::SCallbackInfo& info) {
         onMouseButton(event, info);
@@ -110,4 +116,5 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 APICALL EXPORT void PLUGIN_EXIT() {
     g_mouseHook.reset();
     g_swallowedButtons.clear();
+    g_enabled.reset();
 }
